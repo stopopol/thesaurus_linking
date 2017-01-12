@@ -1,0 +1,494 @@
+<?php
+
+/**
+ * @file
+ * Code for the Thesaurus linking feature.
+ */
+include_once 'thesaurus_linking.features.inc';
+
+/**
+ * Implements hook_form_alter().
+ */
+function thesaurus_linking_form_alter(&$form, &$form_state, $form_id) {
+    switch ($form_id) {
+        case 'thesaurus_node_form':
+            $form['title']['#autocomplete_path'] = 'ctools/autocomplete/taxonomy_vocabulary';
+            $form['#validate'][] = '_thesaurus_linking_validate';
+            $form['#submit'][] = '_thesaurus_linking_submit';
+            break;
+    }
+}
+
+/**
+ * validation to thesaurus_node_form
+ */
+function _thesaurus_linking_validate(&$form, &$form_state) {
+    $node = $form_state['node'];
+    $origin_title = $form_state['values']['title'];
+    //cut the id from title
+    $title = explode(" [", $origin_title);
+    $title = $title[0];
+    if (!isset($node->nid) || isset($node->is_new)) {
+        // This is a new node.
+        $query = "SELECT nid FROM node WHERE title='" . $title . "'"; //title is must uniqe
+        $result = db_query($query)->fetchAll();
+        foreach ($result as $r) {
+            form_set_error('title', t('There is content with the same title. The title should be unique. The title is the name of the vocabulary.'));
+            break;
+        }
+    }
+    //create vocabulary
+    if (isset($origin_title)) {
+        $vocabulary_ = "";
+        //load machine name if have in data
+        $machine_name_load = db_select('taxonomy_vocabulary', 't')
+                ->fields('t', array('machine_name'))
+                ->condition('name', db_like($title), 'LIKE')
+                ->execute()->fetchField();
+        //if vocabulary not exist create new vocabulary
+        if ($machine_name_load == false) {
+            //if (empty($vocabulary_)) { 
+            $vocabulary = new stdClass();
+            $vocabulary->name = $origin_title;
+            $vocabulary->machine_name = str_replace(" ", "_", strtolower($origin_title)); //format mechine name
+            //save the new vocabulary
+            taxonomy_vocabulary_save($vocabulary);
+            $vid = $vocabulary->vid;
+            $form_state['vid'] = $vid;
+            //Add fields in new vocabulary
+            vocabulary_fields($vocabulary->machine_name);
+        }
+        else {
+            $vocabulary_ = taxonomy_vocabulary_machine_name_load($machine_name_load);
+            //if vocabulary name exist
+            $form_state['vid'] = $vocabulary_->vid;
+            drupal_set_message(t('The vocabulary has been updated.'), 'status');
+            //form_set_error('title', t('The vocabulary name is exist'));
+            // $form_state['vid'] = 0;
+        }
+    }
+}
+
+/**
+ * Create fields Base and fields Instance for each new vocabulary
+ */
+function vocabulary_fields($machine_name) {
+    field_cache_clear();
+    //Create fields in new vocabulary
+    // <editor-fold defaultstate="collapsed" desc="Create fields base">
+    $field_base;
+    // field_base: 'field_code'
+    if (!field_info_field('field_code')) {
+        $field_base = array(
+          'field_name' => 'field_code',
+          'type' => 'text',
+        );
+
+        field_create_field($field_base);
+        drupal_set_message($field_base . ' was created.');
+    }
+    // field_base: 'field_concept'
+    if (!field_info_field('field_concept')) {
+        $field_base = array(
+          'field_name' => 'field_concept',
+          'type' => 'text',
+        );
+
+        field_create_field($field_base);
+        drupal_set_message($field_base . ' was created.');
+    }
+    // Exported field_base: 'field_parlab'.
+    if (!field_info_field('field_parlab')) {
+        $field_base = array(
+          'field_name' => 'field_parlab',
+          'type' => 'text',
+        );
+
+        field_create_field($field_base);
+        drupal_set_message('the base fields was created.');
+    }
+    // Exported field_base: 'field_source'.
+    if (!field_info_field('field_source')) {
+        $field_base = array(
+          'field_name' => 'field_source',
+          'type' => 'text',
+        );
+
+        field_create_field($field_base);
+        drupal_set_message('the base fields was created.');
+    }
+    // Exported field_base: 'status'.
+    if (!field_info_field('status')) {
+        $field_base = array(
+          'field_name' => 'status',
+          'type' => 'text',
+//          'type' => 'list_text',
+//          'settings' => array(
+//            'allowed_values' => array(
+//              '1' => 'New',
+//              '2' => 'Update',
+//              '3' => 'Deprecated',
+//            ),
+//          ),
+        );
+
+        field_create_field($field_base);
+        drupal_set_message('the base fields was created.');
+    }
+    // </editor-fold>
+    // <editor-fold defaultstate="collapsed" desc="Create the instance on the bundle">
+    $field_instances = array();
+
+    // Exported field_instance: 'taxonomy_term-tags-field_code'.
+    if (!field_info_instance("taxonomy_term", 'field_code', $machine_name)) {
+        $field_instances['field_code'] = array(
+          'bundle' => $machine_name,
+          'entity_type' => 'taxonomy_term',
+          'field_name' => 'field_code',
+          'label' => 'Code',
+          'required' => 0,
+          'widget' => array(
+            'type' => 'text_textfield',
+          ),
+        );
+    }
+
+    // Exported field_instance: 'taxonomy_term-tags-field_concept'.
+    if (!field_info_instance("taxonomy_term", 'field_concept', $machine_name)) {
+        $field_instances['field_concept'] = array(
+          'bundle' => $machine_name,
+          'entity_type' => 'taxonomy_term',
+          'field_name' => 'field_concept',
+          'label' => 'Concept',
+          'required' => 0,
+          'widget' => array(
+            'type' => 'text_textfield',
+          ),
+        );
+    }
+
+    // Exported field_instance: 'taxonomy_term-tags-field_parlab'.
+    if (!field_info_instance("taxonomy_term", 'field_parlab', $machine_name)) {
+        $field_instances['field_parlab'] = array(
+          'bundle' => $machine_name,
+          'entity_type' => 'taxonomy_term',
+          'field_name' => 'field_parlab',
+          'label' => 'Parent label',
+          'required' => 0,
+          'widget' => array(
+            'type' => 'text_textfield',
+          ),
+        );
+    }
+
+    // Exported field_instance: 'taxonomy_term-tags-field_source'.
+    if (!field_info_instance("taxonomy_term", 'field_source', $machine_name)) {
+        $field_instances['field_source'] = array(
+          'bundle' => $machine_name,
+          'entity_type' => 'taxonomy_term',
+          'field_name' => 'field_source',
+          'label' => 'Source',
+          'required' => 0,
+          'widget' => array(
+            'type' => 'text_textfield',
+          ),
+        );
+    }
+
+    // Exported field_instance: 'taxonomy_term-tags-status'.
+    if (!field_info_instance("taxonomy_term", 'status', $machine_name)) {
+        $field_instances['status'] = array(
+          'bundle' => $machine_name,
+          'entity_type' => 'taxonomy_term',
+          'field_name' => 'status',
+          'label' => 'Status',
+          'required' => 0,
+          'widget' => array(
+            'type' => 'text_textfield',
+          ),
+        );
+    }
+
+    if (!empty($field_instances)) {
+        foreach ($field_instances as $instance_field) {
+            field_create_instance($instance_field);
+        }
+    }
+    // </editor-fold>
+}
+
+function _thesaurus_linking_submit(&$form, &$form_state) {
+    $node = $form_state['values'];
+    _thesaurus_linking_update_terms($form_state);
+}
+
+/**
+ * Implements hook_cron();
+ */
+function thesaurus_linking_cron() {
+    $results = db_select('node', 'n')
+        ->fields('n', array('nid'))
+        ->condition('type', 'thesaurus')
+        ->execute()
+        ->fetchAll();
+    foreach ($results as $result) {
+        $node = node_load($result->nid);
+        _thesaurus_linking_update_terms($node);
+    }
+}
+
+function _thesaurus_linking_update_terms($node = NULL) {
+    $vocabulary = "";
+    if (is_array($node) && $node['build_info']['form_id'] == 'thesaurus_node_form') {
+        $query = $node['values']['field_sparql_query']['und'][0]['value'];
+        //Get vid that inserted
+        $vid = $node['vid'];
+        $vocabulary = taxonomy_vocabulary_load($vid);
+    }
+    else {
+        $title = str_replace(" ", "_", strtolower($node->title));
+        $vocabulary = taxonomy_vocabulary_machine_name_load($title);
+        $query = isset($node->field_sparql_query['und'][0]['value']) ? $node->field_sparql_query['und'][0]['value'] : "";
+        //Get vid that inserted by title
+        $vid = isset($vocabulary->vid) ? $vocabulary->vid : "";
+        $cron = 'cron';
+    }
+
+    if ($query != "" && $vid != "") {
+        //$query = $query;
+        $json = file_get_contents($query); //urlencode()
+        if ($json != "") {
+            $data = drupal_json_decode($json);
+            if (is_array($data)) {
+                $tree = taxonomy_get_tree($vid);
+                //Sort tree by tid
+                global $sort_tree;
+                $sort_tree = array();
+                //Saves the list of this vocabulary to track who has been updated
+                foreach ($tree as $t) {
+                    $sort_tree[$t->tid]['name'] = $t->name; //label
+                    $sort_tree[$t->tid]['tid'] = $t->tid;
+                }
+                //Count status terms
+                $count_up = array('New' => 0, 'Update' => 0, 'Deprecated' => 0);
+                //Array json
+                foreach ($data['results']['bindings'] as $d) {
+                    $term = "";
+                    $flag = 0;
+                    $concept_or_label = "";
+                    if (!empty($d['concept']['value'])) {
+                        //get term obj if have concept is identity key
+                        $term = db_select('field_data_field_concept', 'concept')
+                                ->fields('concept', array('entity_id'))
+                                ->condition('entity_type', 'taxonomy_term')
+                                ->condition('bundle', db_like($vocabulary->machine_name), 'LIKE')
+                                ->condition('field_concept_value', db_like($d['concept']['value']), 'LIKE')
+                                ->execute()->fetchField();
+                        $term = taxonomy_term_load($term);
+                        $concept_or_label = "concept";
+                    }
+                    elseif (!empty($d['label']['value'])) {
+                        //If not found in black list
+                        $vocabulary_blacklist = taxonomy_vocabulary_machine_name_load('blacklist');
+                        $vid_blacklist = isset($vocabulary_blacklist->vid) ? $vocabulary_blacklist->vid : "";
+                        $tree = taxonomy_get_tree($vid_blacklist);
+                        $flag = 0;
+                        $concept_or_label = "label";
+                        foreach ($tree as $t) {
+                            if ($t->name == $d['label']['value']) {
+                                $flag = 1;
+                                break;
+                            }
+                            else {
+                                $flag = 0;
+                            }
+                        }
+                        if ($flag == 0) {
+                            //get term obj if have only name (label)
+                            $term = taxonomy_get_term_by_name($d['label']['value'], $vocabulary->machine_name);
+                            $term = array_values($term);
+                            if (!empty($term))
+                                $term = (object) $term[0];
+                        }
+                    }
+                    if ($flag == 0) {
+                        if (empty($term)) {  //If the term not exist in the list
+                            //Insert new term and update parent if have.
+                            $op = 'New';
+                            $new_term = new stdClass();
+                            $par_obj = "";
+
+                            //Check if have parent and if exist in list
+                            if (isset($d['parent']['value']) && $d['parent']['value'] != "") { //If have parent
+                                $par_obj = update_parent($d, $vocabulary, $op, 'parent', $count_up, $sort_tree);
+                                //Save new parent
+                                $new_term->parent = array($par_obj->tid);
+                            }
+                            elseif (isset($d['parlab']['value']) && $d['parlab']['value'] != "") {
+                                $par_obj = update_parent($d, $vocabulary, $op, 'parlab', $count_up, $sort_tree);
+                                $new_term->parent = array($par_obj->tid);
+                            }
+                            //Save new term
+                            $new_term->vid = $vid;
+                            //Update fields
+                            $new_term->field_code['und']['0']['value'] = isset($d['code']['value']) ? $d['code']['value'] : "";
+                            $new_term->field_concept['und']['0']['value'] = $d['concept']['value']; //url
+                            $new_term->name = $d['label']['value'];
+                            $new_term->field_parlab['und']['0']['value'] = isset($d['parlab']['value']) ? $d['parlab']['value'] : ""; //may equal parent
+                            $new_term->field_source['und']['0']['value'] = $d['source']['value']; //name of vocabilary
+                            $new_term->status['und']['0']['value'] = $op;
+                            $status = taxonomy_term_save($new_term);
+                            $count_up[$op] ++;
+                        }
+                        else {
+                            //Update the exist term
+                            $op = 'Update';
+                            $tid = $term->tid;
+
+                            $sort_tree[$tid]['flag'] = 1; // flag 1 -> not deleted
+                            //update fields
+                            $new_term = new stdClass();
+                            $new_term->name = $d['label']['value'];
+                            $new_term->vid = $vid;
+                            $new_term->tid = $tid;
+                            $new_term->field_code['und']['0']['value'] = isset($d['code']['value']) ? $d['code']['value'] : "";
+                            $new_term->field_concept['und']['0']['value'] = $d['concept']['value'];
+                            $new_term->field_parlab['und']['0']['value'] = isset($d['parlab']['value']) ? $d['parlab']['value'] : "";
+                            $new_term->field_source['und']['0']['value'] = $d['source']['value'];
+                            $new_term->status['und']['0']['value'] = $op;
+
+                            //Update parent
+                            $par_obj = "";
+                            if (isset($d['parent']['value']) && $d['parent']['value'] != '') {
+                                $par_obj = update_parent($d, $vocabulary, $op, 'parent', $count_up, $sort_tree);
+                                $new_term->parent = array($par_obj->tid);
+                            }
+                            elseif (isset($d['parlab']['value']) && $d['parlab']['value'] != "") {
+                                $par_obj = update_parent($d, $vocabulary, $op, 'parlab', $count_up, $sort_tree);
+                                //($par_obj);
+                                $new_term->parent = array($par_obj->tid);
+                                //mybe the op update hear
+                            }
+
+                            $current_par = "";
+                            $current_par = taxonomy_get_parents($tid);
+                            $current_par = array_values($current_par);
+
+                            if (empty($current_par) && $par_obj == "") {
+                                //There is nothing to update
+                                //return;
+                            }
+                            elseif (!empty($current_par[0]->tid)) {
+                                if ($par_obj == "") { //Remove the parent from $term
+                                    $new_term->parent = array(0);
+                                }
+                                elseif ($current_par[0]->tid != $par_obj->tid) {
+                                    $new_term->parent = array($par_obj->tid);
+                                    $sort_tree[$par_obj->tid]['flag'] = 1; // flag 1 -> not deleted
+                                }
+                            }
+
+                            $status = taxonomy_term_save($new_term);
+                            $count_up[$op] ++;
+                        }
+                    }
+                }
+                //All terms that no updated
+                $op = 'Deprecated';
+                foreach ($sort_tree as $term) {
+                    if (!isset($term['flag'])) {
+                        $term = taxonomy_term_load($term['tid']);
+                        $term->status['und'][0]['value'] = $op;
+                        taxonomy_term_save($term);
+                        //Delete tags that are not present in the list
+                        //taxonomy_term_delete($term['tid']);
+                        $count_up[$op] ++;
+                    }
+                }
+
+                //Add message
+                foreach ($count_up as $key => $val) {
+                    $message = message_create('vocabulary');
+                    $wrapper = entity_metadata_wrapper('message', $message);
+                    $wrapper->field_amount->set($val);
+                    $wrapper->field_status->set($key);
+                    $wrapper->field_vocabulary->set($vocabulary->machine_name);
+                    // Save message
+                    $wrapper->save();
+                }
+            }
+        }
+    }
+}
+
+//Update Parent or insert - To do add field status
+function update_parent($d, $vocabulary, $op, $parent_type, &$count_up, &$sort_tree) {
+    //op is update and maybe need to be new
+    $vid = $vocabulary->vid;
+    $par_obj = "";
+    //Get term by parent
+    if ($parent_type == 'parent') {
+        //load parent -> name is parlab
+        $parent_tid = db_select('field_data_field_concept', 'c');
+        $parent_tid->join('taxonomy_term_hierarchy', 'h', 'c.entity_id = h.parent');
+        $parent_tid->fields('c', array('entity_id'));
+        $parent_tid->condition('c.field_concept_value', db_like($d['parent']['value']), 'LIKE');
+        $parent_tid->condition('c.bundle', db_like($vocabulary->machine_name), 'LIKE');
+        $result = $parent_tid->execute()->fetchField();
+        if (isset($result) && !empty($result)) {
+            $par_obj = taxonomy_term_load($result);
+        }
+    }
+    elseif ($parent_type == 'parlab') {//Get term by parlab
+        $parent_tid = db_select('taxonomy_term_data', 't');
+        $parent_tid->join('field_data_field_concept', 'c', 't.tid = c.entity_id');
+        $parent_tid->fields('c', array('entity_id'));
+        $parent_tid->condition('c.entity_type', 'taxonomy_term');
+        $parent_tid->condition('c.bundle', db_like($vocabulary->machine_name), 'LIKE');
+        $parent_tid->condition('t.name', db_like($d['parlab']['value']), 'LIKE');
+        $parent_tid->condition('c.field_concept_value', db_like($d['parlab']['value']), 'LIKE');
+        $par_obj = $parent_tid->execute()->fetchAll();
+        if (isset($par_obj) && !empty($par_obj)) {
+            $par_obj = (object) $par_obj[0];
+            if (isset($par_obj) && !empty($par_obj)) {
+                $par_obj = taxonomy_term_load($par_obj->entity_id);
+            }
+        }
+    }
+    //If not found parent in the vocabulary (by the parent and by the parlab)  
+    if (empty($par_obj)) {
+        //Save new parent
+        $par_obj = new stdClass();
+        if (!empty($d['parlab']['value'])) {
+            $par_obj->name = $d['parlab']['value'];
+        }
+        else {
+            $par_obj->name = $d['parent']['value'];
+        }
+        //if parent null enter parlab
+        $op = 'New';
+        $par_obj->field_concept['und']['0']['value'] = empty($d['parent']['value']) ? $d['parlab']['value'] : $d['parent']['value'];
+        $par_obj->vid = $vid;
+        $par_obj->status['und']['0']['value'] = $op;
+        $status = taxonomy_term_save($par_obj);
+        //global array
+        $count_up[$op] ++;
+    }
+    else {//If have in list terms
+        //Get tid of the parent
+        //$op = 'Update';
+        //Update name parent
+        if (!empty($d['parlab']['value'])) {
+            $par_obj->name = $d['parlab']['value'];
+        }
+        else {
+            $par_obj->name = $d['parent']['value'];
+        }
+        $par_obj->status['und']['0']['value'] = $op;
+        $par_obj->field_concept['und']['0']['value'] = empty($d['parent']['value']) ? $d['parlab']['value'] : $d['parent']['value'];
+        $status = taxonomy_term_save($par_obj);
+        $sort_tree[$par_obj->tid]['flag'] = 1; // flag 1 -> not deleted to do //global array
+        $count_up[$op] ++;
+    }
+    return $par_obj;
+}
